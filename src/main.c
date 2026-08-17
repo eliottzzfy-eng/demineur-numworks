@@ -1,238 +1,177 @@
-#include <stdio.h>
+#include <ion.h>
+#include <kandinsky.h>
 #include <stdlib.h>
+#include <stdbool.h>
 #include <time.h>
 
-#define MAX_X 16
-#define MAX_Y 16
-#define MAX_MINES 40
+#define GRID_WIDTH 16
+#define GRID_HEIGHT 10
+#define TILE_SIZE 20
+#define OFFSET_X ((320 - GRID_WIDTH * TILE_SIZE) / 2)
+#define OFFSET_Y ((240 - GRID_HEIGHT * TILE_SIZE) / 2)
+#define NUM_BOMBS 20
 
 typedef struct {
-    int x, y;
-    int revealed;
-    int flagged;
-    int mine;
-    int neighbor_mines;
-} Cell;
+    bool hasBomb;
+    bool isRevealed;
+    bool isFlagged;
+    int neighborBombs;
+} Tile;
 
-typedef struct {
-    Cell grid[MAX_Y][MAX_X];
-    int total_mines;
-    int revealed_count;
-    int game_over;
-    int win;
-} GameState;
+Tile grid[GRID_WIDTH][GRID_HEIGHT];
+int cursorX = 0, cursorY = 0;
+bool gameOver = false;
+bool gameWon = false;
 
-void init_grid(GameState *game) {
-    for (int y = 0; y < MAX_Y; y++) {
-        for (int x = 0; x < MAX_X; x++) {
-            game->grid[y][x].x = x;
-            game->grid[y][x].y = y;
-            game->grid[y][x].revealed = 0;
-            game->grid[y][x].flagged = 0;
-            game->grid[y][x].mine = 0;
-            game->grid[y][x].neighbor_mines = 0;
+void initGame() {
+    // Initialize grid
+    for (int x = 0; x < GRID_WIDTH; x++) {
+        for (int y = 0; y < GRID_HEIGHT; y++) {
+            grid[x][y].hasBomb = false;
+            grid[x][y].isRevealed = false;
+            grid[x][y].isFlagged = false;
+            grid[x][y].neighborBombs = 0;
         }
     }
-    game->total_mines = 0;
-    game->revealed_count = 0;
-    game->game_over = 0;
-    game->win = 0;
-}
 
-int count_neighbor_mines(GameState *game, int x, int y) {
-    int count = 0;
-    for (int dy = -1; dy <= 1; dy++) {
-        for (int dx = -1; dx <= 1; dx++) {
-            int nx = x + dx;
-            int ny = y + dy;
-            if (nx >= 0 && nx < MAX_X && ny >= 0 && ny < MAX_Y) {
-                if (game->grid[ny][nx].mine) {
-                    count++;
-                }
-            }
+    // Place bombs
+    int placedBombs = 0;
+    while (placedBombs < NUM_BOMBS) {
+        int x = rand() % GRID_WIDTH;
+        int y = rand() % GRID_HEIGHT;
+        if (!grid[x][y].hasBomb) {
+            grid[x][y].hasBomb = true;
+            placedBombs++;
         }
     }
-    return count;
-}
 
-void reveal_cell(GameState *game, int x, int y) {
-    if (x < 0 || x >= MAX_X || y < 0 || y >= MAX_Y) return;
-    if (game->grid[y][x].revealed || game->grid[y][x].flagged) return;
-    
-    game->grid[y][x].revealed = 1;
-    game->revealed_count++;
-    
-    if (game->grid[y][x].mine) {
-        game->game_over = 1;
-        game->win = 0;
-        return;
-    }
-    
-    int neighbors = count_neighbor_mines(game, x, y);
-    game->grid[y][x].neighbor_mines = neighbors;
-    
-    if (neighbors == 0) {
-        for (int dy = -1; dy <= 1; dy++) {
+    // Calculate neighbors
+    for (int x = 0; x < GRID_WIDTH; x++) {
+        for (int y = 0; y < GRID_HEIGHT; y++) {
+            if (grid[x][y].hasBomb) continue;
+            int count = 0;
             for (int dx = -1; dx <= 1; dx++) {
-                int nx = x + dx;
-                int ny = y + dy;
-                reveal_cell(game, nx, ny);
-            }
-        }
-    }
-}
-
-void toggle_flag(GameState *game, int x, int y) {
-    if (x < 0 || x >= MAX_X || y < 0 || y >= MAX_Y) return;
-    if (game->grid[y][x].revealed) return;
-    
-    game->grid[y][x].flagged = !game->grid[y][x].flagged;
-}
-
-void draw_grid(GameState *game) {
-    printf("\n");
-    printf("  0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15\n");
-    printf("   --------------------------------------------------------\n");
-    
-    for (int y = 0; y < MAX_Y; y++) {
-        printf("%d | ", y);
-        for (int x = 0; x < MAX_X; x++) {
-            if (game->grid[y][x].revealed) {
-                if (game->grid[y][x].mine) {
-                    printf(" * ");
-                } else if (game->grid[y][x].neighbor_mines > 0) {
-                    printf(" %d ", game->grid[y][x].neighbor_mines);
-                } else {
-                    printf(" . ");
-                }
-            } else if (game->grid[y][x].flagged) {
-                printf(" F ");
-            } else {
-                printf(" ? ");
-            }
-        }
-        printf(" |\n");
-    }
-    
-    printf("   --------------------------------------------------------\n");
-    printf("Mines: %d | Revealed: %d/%d | ", game->total_mines, game->revealed_count, MAX_X * MAX_Y - MAX_MINES);
-    
-    if (game->game_over) {
-        if (game->win) {
-            printf("VICTOIRE!\n");
-        } else {
-            printf("DEFAITE!\n");
-        }
-    }
-}
-
-int place_mines(GameState *game, int start_x, int start_y) {
-    int mines_placed = 0;
-    srand(time(NULL));
-    
-    while (mines_placed < MAX_MINES) {
-        int x = rand() % MAX_X;
-        int y = rand() % MAX_Y;
-        
-        if (!game->grid[y][x].revealed && 
-            !(x >= start_x - 1 && x <= start_x + 1 && y >= start_y - 1 && y <= start_y + 1)) {
-            
-            game->grid[y][x].mine = 1;
-            mines_placed++;
-            
-            for (int dy = -1; dy <= 1; dy++) {
-                for (int dx = -1; dx <= 1; dx++) {
+                for (int dy = -1; dy <= 1; dy++) {
                     int nx = x + dx;
                     int ny = y + dy;
-                    if (nx >= 0 && nx < MAX_X && ny >= 0 && ny < MAX_Y && !game->grid[ny][nx].mine) {
-                        game->grid[ny][nx].neighbor_mines++;
+                    if (nx >= 0 && nx < GRID_WIDTH && ny >= 0 && ny < GRID_HEIGHT) {
+                        if (grid[nx][ny].hasBomb) count++;
                     }
                 }
             }
+            grid[x][y].neighborBombs = count;
         }
     }
-    
-    game->total_mines = mines_placed;
-    return mines_placed;
+    gameOver = false;
+    gameWon = false;
 }
 
-int check_win(GameState *game) {
-    int safe_cells = MAX_X * MAX_Y - MAX_MINES;
-    return game->revealed_count >= safe_cells;
-}
+void drawTile(int x, int y, bool isCursor) {
+    Tile t = grid[x][y];
+    kd_color color = KD_COLOR_WHITE;
+    char text[2] = {0, 0};
 
-void process_input(GameState *game) {
-    printf("Coordonnées (x y) ou 'f x y' pour flaguer, 'q' pour quitter: ");
-    char input[30];
-    if (!fgets(input, sizeof(input), stdin)) return;
-    
-    // Remove newline
-    input[strcspn(input, "\n")] = 0;
-    
-    if (input[0] == 'q' || input[0] == 'Q') {
-        game->game_over = 1;
-        return;
-    }
-    
-    char command = input[0];
-    int x, y;
-    
-    if (command == 'f' || command == 'F') {
-        // Flag/unflag command
-        if (sscanf(input + 1, " %d %d", &x, &y) == 2) {
-            toggle_flag(game, x, y);
+    int px = OFFSET_X + x * TILE_SIZE;
+    int py = OFFSET_Y + y * TILE_SIZE;
+
+    if (t.isRevealed) {
+        if (t.hasBomb) {
+            color = KD_COLOR_RED;
+            text[0] = '*';
+        } else {
+            color = KD_COLOR_LIGHT_GREY;
+            if (t.neighborBombs > 0) {
+                text[0] = '0' + t.neighborBombs;
+            }
         }
     } else {
-        // Reveal cell
-        if (sscanf(input, "%d %d", &x, &y) == 2) {
-            reveal_cell(game, x, y);
-            if (game->game_over) {
-                game->win = check_win(game);
+        color = t.isFlagged ? KD_COLOR_ORANGE : KD_COLOR_DARK_GREY;
+        if (t.isFlagged) text[0] = 'F';
+    }
+
+    kd_draw_rect(px, py, TILE_SIZE, TILE_SIZE, color);
+    kd_draw_rect(px, py, TILE_SIZE, 1, KD_COLOR_BLACK);
+    kd_draw_rect(px, py, 1, TILE_SIZE, KD_COLOR_BLACK);
+    
+    if (text[0] != 0) {
+        kd_draw_string(text, px + 6, py + 2, KD_COLOR_BLACK, color);
+    }
+
+    if (isCursor) {
+        kd_draw_rect(px, py, TILE_SIZE, 2, KD_COLOR_YELLOW);
+        kd_draw_rect(px, py + TILE_SIZE - 2, TILE_SIZE, 2, KD_COLOR_YELLOW);
+        kd_draw_rect(px, py, 2, TILE_SIZE, KD_COLOR_YELLOW);
+        kd_draw_rect(px + TILE_SIZE - 2, py, 2, TILE_SIZE, KD_COLOR_YELLOW);
+    }
+}
+
+void reveal(int x, int y) {
+    if (x < 0 || x >= GRID_WIDTH || y < 0 || y >= GRID_HEIGHT || grid[x][y].isRevealed || grid[x][y].isFlagged) return;
+
+    grid[x][y].isRevealed = true;
+
+    if (grid[x][y].hasBomb) {
+        gameOver = true;
+        return;
+    }
+
+    if (grid[x][y].neighborBombs == 0) {
+        for (int dx = -1; dx <= 1; dx++) {
+            for (int dy = -1; dy <= 1; dy++) {
+                reveal(x + dx, y + dy);
             }
         }
     }
+}
+
+bool checkWin() {
+    for (int x = 0; x < GRID_WIDTH; x++) {
+        for (int y = 0; y < GRID_HEIGHT; y++) {
+            if (!grid[x][y].hasBomb && !grid[x][y].isRevealed) return false;
+        }
+    }
+    return true;
 }
 
 int main() {
-    GameState game;
-    init_grid(&game);
-    
-    printf("=== Démineur pour NumWorks ===\n");
-    printf("Entrez 'x y' pour révéler une cellule.\n");
-    printf("Entrez 'f x y' pour flaguer/déflaguer.\n");
-    printf("Entrez 'q' pour quitter.\n\n");
-    
-    game.game_over = 0;
-    
-    while (!game.game_over) {
-        draw_grid(&game);
-        process_input(&game);
-        
-        if (!game.game_over && game.total_mines == 0) {
-            // First reveal - place mines avoiding the starting cell
-            // We'll place mines after the first cell reveal in the loop
-        }
-    }
-    
-    draw_grid(&game);
-    
-    if (game.win) {
-        printf("\nFélicitations ! Vous avez gagné !\n");
-    } else {
-        printf("\nDommage ! Vous avez perdu.\n");
-        printf("Les mines étaient cachées à ces positions:\n");
-        for (int y = 0; y < MAX_Y; y++) {
-            for (int x = 0; x < MAX_X; x++) {
-                if (game.grid[y][x].mine) {
-                    printf("(%d, %d) ", x, y);
-                }
+    srand(ion_get_time());
+    initGame();
+
+    while (true) {
+        kd_clear_screen(KD_COLOR_WHITE);
+        for (int x = 0; x < GRID_WIDTH; x++) {
+            for (int y = 0; y < GRID_HEIGHT; y++) {
+                drawTile(x, y, (x == cursorX && y == cursorY));
             }
         }
-        printf("\n");
+
+        if (gameOver) {
+            kd_draw_string("GAME OVER", 110, 220, KD_COLOR_RED, KD_COLOR_WHITE);
+        } else if (gameWon) {
+            kd_draw_string("YOU WIN!", 120, 220, KD_COLOR_GREEN, KD_COLOR_WHITE);
+        }
+
+        ion_event_t event = ion_get_event();
+
+        if (event == ION_EVENT_UP && cursorY > 0) cursorY--;
+        if (event == ION_EVENT_DOWN && cursorY < GRID_HEIGHT - 1) cursorY++;
+        if (event == ION_EVENT_LEFT && cursorX > 0) cursorX--;
+        if (event == ION_EVENT_RIGHT && cursorX < GRID_WIDTH - 1) cursorX++;
+
+        if (!gameOver && !gameWon) {
+            if (event == ION_EVENT_OK) {
+                reveal(cursorX, cursorY);
+                if (checkWin()) gameWon = true;
+            }
+            if (event == ION_EVENT_BACK) {
+                grid[cursorX][cursorY].isFlagged = !grid[cursorX][cursorY].isFlagged;
+            }
+        }
+
+        if (event == ION_EVENT_HOME) break;
+        if ((gameOver || gameWon) && (event == ION_EVENT_OK || event == ION_EVENT_BACK)) {
+            initGame();
+        }
     }
-    
-    printf("Merci d'avoir joué ! Appuyez sur Entrée pour quitter...\n");
-    getchar();
-    
     return 0;
 }
