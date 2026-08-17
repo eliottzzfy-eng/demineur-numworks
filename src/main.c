@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
-#include <conio.h>
 
 #define MAX_X 16
 #define MAX_Y 16
@@ -232,8 +231,8 @@ int main() {
         printf("\n");
     }
     
-    printf("Merci d'avoir joué ! Appuyez sur une touche pour quitter...\n");
-    getch();
+    printf("Merci d'avoir joué ! Appuyez sur Entrée pour quitter...\n");
+    getchar();
     
     return 0;
 }
