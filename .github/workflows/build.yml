@@ -7,8 +7,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
-        with:
-          submodules: recursive
+
+      # Cette étape force le téléchargement du SDK NumWorks
+      - name: Download EADK
+        run: git clone https://github.com/numworks/eadk.git eadk
 
       - name: Install toolchain
         uses: numworks/setup-arm-toolchain@latest
