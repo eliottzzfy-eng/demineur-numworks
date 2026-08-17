@@ -1,177 +1,216 @@
-#include <ion.h>
-#include <kandinsky.h>
+#include <eadk.h>
 #include <stdlib.h>
 #include <stdbool.h>
-#include <time.h>
+#include <stdio.h>
 
-#define GRID_WIDTH 16
-#define GRID_HEIGHT 10
-#define TILE_SIZE 20
-#define OFFSET_X ((320 - GRID_WIDTH * TILE_SIZE) / 2)
-#define OFFSET_Y ((240 - GRID_HEIGHT * TILE_SIZE) / 2)
-#define NUM_BOMBS 20
+#define GRID_W 10
+#define GRID_H 10
+#define MINES_COUNT 15
+#define CELL_SIZE 20
+#define OFFSET_X ((320 - (GRID_W * CELL_SIZE)) / 2)
+#define OFFSET_Y ((240 - (GRID_H * CELL_SIZE)) / 2)
 
-typedef struct {
-    bool hasBomb;
-    bool isRevealed;
-    bool isFlagged;
-    int neighborBombs;
-} Tile;
+// Couleurs (RGB565)
+static const eadk_color_t COLOR_BLACK  = 0x0000;
+static const eadk_color_t COLOR_WHITE  = 0xFFFF;
+static const eadk_color_t COLOR_GRAY   = 0xC618;
+static const eadk_color_t COLOR_DGRAY  = 0x8410;
+static const eadk_color_t COLOR_RED    = 0xF800;
+static const eadk_color_t COLOR_BLUE   = 0x001F;
+static const eadk_color_t COLOR_CURSOR = 0x07FF; // Cyan
 
-Tile grid[GRID_WIDTH][GRID_HEIGHT];
-int cursorX = 0, cursorY = 0;
-bool gameOver = false;
-bool gameWon = false;
+uint8_t grid[GRID_H][GRID_W];  // 0-8: voisins, 9: mine
+uint8_t state[GRID_H][GRID_W]; // 0: caché, 1: révélé, 2: drapeau
+int cx = 0, cy = 0; // Position du curseur
+bool game_over = false;
+bool win = false;
 
-void initGame() {
-    // Initialize grid
-    for (int x = 0; x < GRID_WIDTH; x++) {
-        for (int y = 0; y < GRID_HEIGHT; y++) {
-            grid[x][y].hasBomb = false;
-            grid[x][y].isRevealed = false;
-            grid[x][y].isFlagged = false;
-            grid[x][y].neighborBombs = 0;
+// Fonction utilitaire pour dessiner un rectangle de couleur unie
+void draw_rect(int x, int y, int w, int h, eadk_color_t color) {
+    eadk_rect_t rect = {(uint16_t)x, (uint16_t)y, (uint16_t)w, (uint16_t)h};
+    eadk_display_push_rect_uniform(rect, color);
+}
+
+// Initialisation de la grille
+void init_game() {
+    game_over = false;
+    win = false;
+    cx = 0; cy = 0;
+    
+    for (int y = 0; y < GRID_H; y++) {
+        for (int x = 0; x < GRID_W; x++) {
+            grid[y][x] = 0;
+            state[y][x] = 0;
         }
     }
 
-    // Place bombs
-    int placedBombs = 0;
-    while (placedBombs < NUM_BOMBS) {
-        int x = rand() % GRID_WIDTH;
-        int y = rand() % GRID_HEIGHT;
-        if (!grid[x][y].hasBomb) {
-            grid[x][y].hasBomb = true;
-            placedBombs++;
+    // Placement des mines
+    int mines_placed = 0;
+    while (mines_placed < MINES_COUNT) {
+        int r = eadk_random() % (GRID_W * GRID_H);
+        int mx = r % GRID_W;
+        int my = r / GRID_W;
+        
+        if (grid[my][mx] != 9) {
+            grid[my][mx] = 9;
+            mines_placed++;
         }
     }
 
-    // Calculate neighbors
-    for (int x = 0; x < GRID_WIDTH; x++) {
-        for (int y = 0; y < GRID_HEIGHT; y++) {
-            if (grid[x][y].hasBomb) continue;
+    // Calcul des chiffres (voisins)
+    for (int y = 0; y < GRID_H; y++) {
+        for (int x = 0; x < GRID_W; x++) {
+            if (grid[y][x] == 9) continue;
             int count = 0;
-            for (int dx = -1; dx <= 1; dx++) {
-                for (int dy = -1; dy <= 1; dy++) {
-                    int nx = x + dx;
-                    int ny = y + dy;
-                    if (nx >= 0 && nx < GRID_WIDTH && ny >= 0 && ny < GRID_HEIGHT) {
-                        if (grid[nx][ny].hasBomb) count++;
+            for (int dy = -1; dy <= 1; dy++) {
+                for (int dx = -1; dx <= 1; dx++) {
+                    int nx = x + dx, ny = y + dy;
+                    if (nx >= 0 && nx < GRID_W && ny >= 0 && ny < GRID_H) {
+                        if (grid[ny][nx] == 9) count++;
                     }
                 }
             }
-            grid[x][y].neighborBombs = count;
+            grid[y][x] = count;
         }
-    }
-    gameOver = false;
-    gameWon = false;
-}
-
-void drawTile(int x, int y, bool isCursor) {
-    Tile t = grid[x][y];
-    kd_color color = KD_COLOR_WHITE;
-    char text[2] = {0, 0};
-
-    int px = OFFSET_X + x * TILE_SIZE;
-    int py = OFFSET_Y + y * TILE_SIZE;
-
-    if (t.isRevealed) {
-        if (t.hasBomb) {
-            color = KD_COLOR_RED;
-            text[0] = '*';
-        } else {
-            color = KD_COLOR_LIGHT_GREY;
-            if (t.neighborBombs > 0) {
-                text[0] = '0' + t.neighborBombs;
-            }
-        }
-    } else {
-        color = t.isFlagged ? KD_COLOR_ORANGE : KD_COLOR_DARK_GREY;
-        if (t.isFlagged) text[0] = 'F';
-    }
-
-    kd_draw_rect(px, py, TILE_SIZE, TILE_SIZE, color);
-    kd_draw_rect(px, py, TILE_SIZE, 1, KD_COLOR_BLACK);
-    kd_draw_rect(px, py, 1, TILE_SIZE, KD_COLOR_BLACK);
-    
-    if (text[0] != 0) {
-        kd_draw_string(text, px + 6, py + 2, KD_COLOR_BLACK, color);
-    }
-
-    if (isCursor) {
-        kd_draw_rect(px, py, TILE_SIZE, 2, KD_COLOR_YELLOW);
-        kd_draw_rect(px, py + TILE_SIZE - 2, TILE_SIZE, 2, KD_COLOR_YELLOW);
-        kd_draw_rect(px, py, 2, TILE_SIZE, KD_COLOR_YELLOW);
-        kd_draw_rect(px + TILE_SIZE - 2, py, 2, TILE_SIZE, KD_COLOR_YELLOW);
     }
 }
 
+// Révélation récursive des cases vides
 void reveal(int x, int y) {
-    if (x < 0 || x >= GRID_WIDTH || y < 0 || y >= GRID_HEIGHT || grid[x][y].isRevealed || grid[x][y].isFlagged) return;
+    if (x < 0 || x >= GRID_W || y < 0 || y >= GRID_H) return;
+    if (state[y][x] != 0) return; // Déjà révélé ou drapeau
 
-    grid[x][y].isRevealed = true;
+    state[y][x] = 1;
 
-    if (grid[x][y].hasBomb) {
-        gameOver = true;
-        return;
-    }
-
-    if (grid[x][y].neighborBombs == 0) {
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = -1; dy <= 1; dy++) {
-                reveal(x + dx, y + dy);
+    if (grid[y][x] == 0) {
+        for (int dy = -1; dy <= 1; dy++) {
+            for (int dx = -1; dx <= 1; dx++) {
+                if (dx != 0 || dy != 0) reveal(x + dx, y + dy);
             }
         }
     }
 }
 
-bool checkWin() {
-    for (int x = 0; x < GRID_WIDTH; x++) {
-        for (int y = 0; y < GRID_HEIGHT; y++) {
-            if (!grid[x][y].hasBomb && !grid[x][y].isRevealed) return false;
+// Vérification de la condition de victoire
+void check_win() {
+    int hidden_count = 0;
+    for (int y = 0; y < GRID_H; y++) {
+        for (int x = 0; x < GRID_W; x++) {
+            if (state[y][x] != 1) hidden_count++;
         }
     }
-    return true;
+    if (hidden_count == MINES_COUNT) {
+        game_over = true;
+        win = true;
+    }
 }
 
-int main() {
-    srand(ion_get_time());
-    initGame();
+// Affichage du jeu
+void render() {
+    // Fond d'écran
+    draw_rect(0, 0, 320, 240, COLOR_BLACK);
 
-    while (true) {
-        kd_clear_screen(KD_COLOR_WHITE);
-        for (int x = 0; x < GRID_WIDTH; x++) {
-            for (int y = 0; y < GRID_HEIGHT; y++) {
-                drawTile(x, y, (x == cursorX && y == cursorY));
+    // Dessin de la grille
+    for (int y = 0; y < GRID_H; y++) {
+        for (int x = 0; x < GRID_W; x++) {
+            int px = OFFSET_X + x * CELL_SIZE;
+            int py = OFFSET_Y + y * CELL_SIZE;
+
+            if (state[y][x] == 0) {
+                // Caché
+                draw_rect(px, py, CELL_SIZE - 1, CELL_SIZE - 1, COLOR_GRAY);
+            } else if (state[y][x] == 2) {
+                // Drapeau
+                draw_rect(px, py, CELL_SIZE - 1, CELL_SIZE - 1, COLOR_RED);
+            } else {
+                // Révélé
+                draw_rect(px, py, CELL_SIZE - 1, CELL_SIZE - 1, COLOR_DGRAY);
+                if (grid[y][x] == 9) {
+                    draw_rect(px + 4, py + 4, CELL_SIZE - 9, CELL_SIZE - 9, COLOR_RED); // Mine
+                } else if (grid[y][x] > 0) {
+                    char num[2];
+                    snprintf(num, sizeof(num), "%d", grid[y][x]);
+                    eadk_point_t p = {(uint16_t)(px + 6), (uint16_t)(py + 2)};
+                    eadk_display_draw_string(num, p, false, COLOR_WHITE, COLOR_DGRAY);
+                }
             }
-        }
-
-        if (gameOver) {
-            kd_draw_string("GAME OVER", 110, 220, KD_COLOR_RED, KD_COLOR_WHITE);
-        } else if (gameWon) {
-            kd_draw_string("YOU WIN!", 120, 220, KD_COLOR_GREEN, KD_COLOR_WHITE);
-        }
-
-        ion_event_t event = ion_get_event();
-
-        if (event == ION_EVENT_UP && cursorY > 0) cursorY--;
-        if (event == ION_EVENT_DOWN && cursorY < GRID_HEIGHT - 1) cursorY++;
-        if (event == ION_EVENT_LEFT && cursorX > 0) cursorX--;
-        if (event == ION_EVENT_RIGHT && cursorX < GRID_WIDTH - 1) cursorX++;
-
-        if (!gameOver && !gameWon) {
-            if (event == ION_EVENT_OK) {
-                reveal(cursorX, cursorY);
-                if (checkWin()) gameWon = true;
-            }
-            if (event == ION_EVENT_BACK) {
-                grid[cursorX][cursorY].isFlagged = !grid[cursorX][cursorY].isFlagged;
-            }
-        }
-
-        if (event == ION_EVENT_HOME) break;
-        if ((gameOver || gameWon) && (event == ION_EVENT_OK || event == ION_EVENT_BACK)) {
-            initGame();
         }
     }
+
+    // Dessin du curseur (cadre cyan)
+    int px = OFFSET_X + cx * CELL_SIZE;
+    int py = OFFSET_Y + cy * CELL_SIZE;
+    draw_rect(px, py, CELL_SIZE - 1, 2, COLOR_CURSOR);
+    draw_rect(px, py + CELL_SIZE - 3, CELL_SIZE - 1, 2, COLOR_CURSOR);
+    draw_rect(px, py, 2, CELL_SIZE - 1, COLOR_CURSOR);
+    draw_rect(px + CELL_SIZE - 3, py, 2, CELL_SIZE - 1, COLOR_CURSOR);
+
+    // Affichage des messages de fin
+    if (game_over) {
+        eadk_point_t p_msg = {100, 10};
+        if (win) {
+            eadk_display_draw_string("VICTOIRE !", p_msg, true, COLOR_WHITE, COLOR_BLACK);
+        } else {
+            eadk_display_draw_string("BOOM ! PERDU !", p_msg, true, COLOR_RED, COLOR_BLACK);
+        }
+        eadk_point_t p_restart = {60, 220};
+        eadk_display_draw_string("Appuie sur OK pour rejouer", p_restart, false, COLOR_GRAY, COLOR_BLACK);
+    }
+}
+
+int main(int argc, char * argv[]) {
+    init_game();
+    render();
+
+    eadk_keyboard_state_t last_kb = 0;
+
+    while (1) {
+        eadk_keyboard_state_t kb = eadk_keyboard_scan();
+
+        if (kb != last_kb) {
+            if (eadk_keyboard_key_down(kb, eadk_key_home) || eadk_keyboard_key_down(kb, eadk_key_back)) {
+                break; // Quitter le jeu
+            }
+
+            if (!game_over) {
+                if (eadk_keyboard_key_down(kb, eadk_key_left) && cx > 0) cx--;
+                if (eadk_keyboard_key_down(kb, eadk_key_right) && cx < GRID_W - 1) cx++;
+                if (eadk_keyboard_key_down(kb, eadk_key_up) && cy > 0) cy--;
+                if (eadk_keyboard_key_down(kb, eadk_key_down) && cy < GRID_H - 1) cy++;
+
+                // Bouton OK pour révéler
+                if (eadk_keyboard_key_down(kb, eadk_key_ok)) {
+                    if (state[cy][cx] == 0) {
+                        if (grid[cy][cx] == 9) {
+                            state[cy][cx] = 1;
+                            game_over = true; // Perdu
+                        } else {
+                            reveal(cx, cy);
+                            check_win();
+                        }
+                    }
+                }
+                
+                // Bouton Shift pour placer un drapeau
+                if (eadk_keyboard_key_down(kb, eadk_key_shift)) {
+                    if (state[cy][cx] == 0) {
+                        state[cy][cx] = 2; // Placer drapeau
+                    } else if (state[cy][cx] == 2) {
+                        state[cy][cx] = 0; // Enlever drapeau
+                    }
+                }
+            } else {
+                // Si la partie est finie, OK pour recommencer
+                if (eadk_keyboard_key_down(kb, eadk_key_ok)) {
+                    init_game();
+                }
+            }
+            
+            render();
+        }
+        last_kb = kb;
+        eadk_timing_msleep(20); // Anti-rebond et économie d'énergie
+    }
+
     return 0;
 }
