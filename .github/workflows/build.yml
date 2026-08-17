@@ -8,9 +8,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # Cette étape force le téléchargement du SDK NumWorks
+      # Téléchargement direct avec curl et tar (contourne les erreurs Git)
       - name: Download EADK
-        run: git clone https://github.com/numworks/eadk.git eadk
+        run: |
+          curl -L -o eadk.tar.gz https://api.github.com/repos/numworks/eadk/tarball
+          mkdir -p eadk
+          tar -xzf eadk.tar.gz -C eadk --strip-components=1
 
       - name: Install toolchain
         uses: numworks/setup-arm-toolchain@latest
@@ -21,7 +24,7 @@ jobs:
       - name: Upload nwa artifact
         uses: actions/upload-artifact@v4
         with:
-          name: block-blast-nwa
+          name: demineur-nwa  # J'ai renommé l'artefact pour que ça corresponde à ton jeu
           path: output/app.nwa
 
       - name: Run make check
